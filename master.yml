@@ -22,7 +22,6 @@
   become: yes
   vars:
     master_dns: "kube1.home"
-    worker_cidr: "192.168.96.0/24"
   tasks:
     - name: retrieve a token
       command: kubeadm token create
