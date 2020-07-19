@@ -1,0 +1,6 @@
+[purpose_kube_master]
+kube[1:3].home      ansible_user=user   ansible_ssh_pass=user   become_method=sudo  ansible_become_user=root    ansible_become_pass=user
+
+[purpose_kube_worker]
+worker[1:2].home    ansible_user=user   ansible_ssh_pass=user   become_method=sudo  ansible_become_user=root    ansible_become_pass=user
+

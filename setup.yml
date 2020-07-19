@@ -1,0 +1,149 @@
+---
+- hosts: purpose_kube_master,purpose_kube_worker
+  become: yes
+  tasks:
+    - name: test connection
+      ping:
+          data: host is reachable with ansible
+
+# to run a standalone command
+# ansible purpose_kube -b -a "echo hello world" -v
+
+    - name: install software
+      apt:
+        name:
+          - apt-transport-https
+          - ca-certificates
+          - software-properties-common
+          - gnupg2
+          - curl
+          - vim
+          - dnsutils
+          - net-tools
+        state: present
+
+    - name: add docker repo key
+      apt_key:
+        id: 9DC858229FC7DD38854AE2D88D81803C0EBFCD88
+        url: https://download.docker.com/linux/ubuntu/gpg
+        state: present
+
+    - name: add docker repo
+      apt_repository:
+        repo: "deb [arch=amd64] https://download.docker.com/linux/ubuntu focal stable"
+        state: present
+
+    - name: install docker
+      apt:
+        name:
+          - docker-ce 
+          - docker-ce-cli
+          - containerd.io
+        state: present
+        
+    - name: ensure systemd is the cgroup provider
+      copy:
+        dest: /etc/docker/daemon.json
+        owner: root
+        group: root
+        mode: "0600"
+        content: >
+            {
+              "exec-opts": ["native.cgroupdriver=systemd"],
+              "log-driver": "json-file",
+              "log-opts": {
+                "max-size": "100m"
+              },
+              "storage-driver": "overlay2"
+            }
+      register: docker_configuration
+            
+
+    - name: restart service cron on centos, in all cases, also issue daemon-reload to pick up config changes
+      systemd:
+        name: docker
+        state: restarted
+        daemon_reload: yes
+      when: docker_configuration.changed
+
+#    - name: run test container once
+#      command: 
+#        cmd: docker run hello-world
+#        creates: /etc/completed_hello_world_container
+
+#    - name: run test container
+#      docker_container:
+#        name: hello-world
+#        image: hello-world
+#        recreate: yes
+
+
+    - name: disable ipv6
+      sysctl:
+        name: "{{ item }}"
+        value: "1"
+        sysctl_set: yes
+        state: present
+        reload: yes
+      with_items:
+        - net.ipv6.conf.all.disable_ipv6
+        - net.ipv6.conf.default.disable_ipv6
+        - net.ipv6.conf.lo.disable_ipv6
+
+# kubernetes setup
+
+    - name: ensure netfilter is loaded
+      modprobe:
+        name: br_netfilter
+        state: present
+
+    - name: ensure iptables can see bridged network traffic
+      sysctl:
+        name: net.bridge.bridge-nf-call-iptables
+        value: "1"
+        sysctl_set: yes
+        state: present
+        reload: yes
+
+    - name: add kubernetes repo key
+      apt_key:
+        id: 54A647F9048D5688D7DA2ABE6A030B21BA07F4FB
+        url: https://packages.cloud.google.com/apt/doc/apt-key.gpg
+        state: present
+
+    - name: add kubernetes repo
+      apt_repository:
+        repo: "deb https://apt.kubernetes.io/ kubernetes-xenial main"
+        state: present
+
+    - name: install kubernetes
+      apt:
+        name:
+          - kubelet
+          - kubeadm
+          - kubectl
+        state: present
+
+    - name: disable swap
+      command: swapoff -a
+      changed_when: true
+      when: ansible_swaptotal_mb > 0
+
+    - name: remove swap from fstab
+      lineinfile:
+        path: /etc/fstab
+        regexp: '\sswap\s'
+        state: absent
+
+    - name: ensure system meets requirements for kubernetes
+      command: 
+        cmd: kubeadm init phase preflight
+        creates: /etc/kubernetes/kubelet.conf
+
+
+
+
+
+
+
+

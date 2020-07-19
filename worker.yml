@@ -1,0 +1,31 @@
+---
+- hosts: purpose_kube_worker
+  become: yes
+  vars:
+    master_dns: "kube1.home"
+  tasks:
+    - name: retrieve a token
+      command: kubeadm token create
+      register: token_to_join
+      run_once: true
+      delegate_to: "{{master_dns}}"
+      environment:
+        KUBECONFIG: "/etc/kubernetes/admin.conf"
+
+    - name: join cluster
+      command: 
+        cmd: "kubeadm join {{master_dns}}:6443 --token {{token_to_join.stdout}} --discovery-token-unsafe-skip-ca-verification"
+        creates: "/etc/kubernetes/pki/ca.crt"
+
+    - name: list nodes
+      command: "kubectl get nodes -o custom-columns=NAME:.metadata.name"
+      register: running_nodes
+      delegate_to: "{{master_dns}}"
+      environment:
+        KUBECONFIG: "/etc/kubernetes/admin.conf"
+
+    - fail:
+        msg: "Could not find node {{ansible_hostname}} in the cluster."
+      when: ansible_hostname not in running_nodes.stdout_lines
+      run_once: true
+

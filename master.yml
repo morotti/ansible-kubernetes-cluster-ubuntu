@@ -1,0 +1,68 @@
+---
+- hosts: purpose_kube_master[0]
+  become: yes
+  vars:
+    master_dns: "kube1.home"
+    worker_cidr: "10.51.0.0/16"
+  environment:
+    KUBECONFIG: "/etc/kubernetes/admin.conf"
+  tasks:
+    - name: initialize cluster
+      command: 
+        cmd: 'kubeadm init --control-plane-endpoint "{{master_dns}}:6443" --pod-network-cidr {{worker_cidr}} --upload-certs'
+        creates: /etc/kubernetes/admin.conf
+
+    - name: deploy CNI
+      command: kubectl apply -f https://raw.githubusercontent.com/cloudnativelabs/kube-router/master/daemonset/generic-kuberouter.yaml
+
+    - name: ensure kubectl can list pods
+      command: kubectl get pod -n kube-system
+      
+- hosts: purpose_kube_master,!purpose_kube_master[0]
+  become: yes
+  vars:
+    master_dns: "kube1.home"
+    worker_cidr: "192.168.96.0/24"
+  tasks:
+    - name: retrieve a token
+      command: kubeadm token create
+      register: token_to_join
+      run_once: true
+      delegate_to: "{{master_dns}}"
+      environment:
+        KUBECONFIG: "/etc/kubernetes/admin.conf"
+
+    - name: retrieve the certificate key
+    # the key is stored in etc for 2 hours after generation.
+      command: kubeadm init phase upload-certs --upload-certs
+      register: certificate_key_to_join
+      run_once: true
+      delegate_to: "{{master_dns}}"
+      environment:
+        KUBECONFIG: "/etc/kubernetes/admin.conf"
+
+#    - name: abc
+#      debug:
+#        var: certificate_key_to_join
+
+    - fail:
+        msg: "Could not extract the certificate key. Did the output format of kubeadm change?"
+      when: certificate_key_to_join.stdout_lines[2] is not regex("[0-9a-zA-Z]+")
+      run_once: true
+
+    - name: join cluster
+      command: 
+        cmd: "kubeadm join {{master_dns}}:6443 --token {{token_to_join.stdout}} --control-plane --certificate-key {{certificate_key_to_join.stdout_lines[2]}} --discovery-token-unsafe-skip-ca-verification"
+        creates: /etc/kubernetes/admin.conf
+
+    - name: list master nodes
+      command: "kubectl get nodes -o custom-columns=NAME:.metadata.name --selector=node-role.kubernetes.io/master"
+      register: running_nodes
+      environment:
+        KUBECONFIG: "/etc/kubernetes/admin.conf"
+
+    - fail:
+        msg: "Could not find master node {{ansible_hostname}} in the cluster."
+      when: ansible_hostname not in running_nodes.stdout_lines
+      run_once: true
+
