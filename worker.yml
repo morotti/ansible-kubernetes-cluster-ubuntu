@@ -5,7 +5,7 @@
     master_dns: "kube1.home"
   tasks:
     - name: retrieve a token
-      command: kubeadm token create
+      command: kubeadm token create --ttl 2h
       register: token_to_join
       run_once: true
       delegate_to: "{{master_dns}}"
@@ -23,6 +23,7 @@
       delegate_to: "{{master_dns}}"
       environment:
         KUBECONFIG: "/etc/kubernetes/admin.conf"
+      changed_when: false
 
     - fail:
         msg: "Could not find node {{ansible_hostname}} in the cluster."
